@@ -1,0 +1,98 @@
+generator client {
+  provider      = "prisma-client-js"
+  // node:20-alpine ships OpenSSL 3, not the legacy 1.1 Prisma's default
+  // musl engine expects — without this, queries fail at runtime with
+  // "Error loading shared library libssl.so.1.1".
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Singleton row (id is always 1) holding the install-wide configuration.
+// `mode` is null until the first-run setup wizard completes; the app treats
+// that as "not configured yet" and shows the wizard instead of the login/home
+// screen. Once set, the setup route refuses to run again.
+model Installation {
+  id        Int      @id @default(1)
+  mode      String? // "single" | "multi"
+  createdAt DateTime @default(now())
+}
+
+// Only used in multi-user mode. In single-user mode there are no User rows
+// at all — meals simply have a null userId, owned by the installation itself.
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  meals        Meal[]
+}
+
+model Meal {
+  id       String  @id @default(cuid())
+  // null in single-user mode (the installation is the only owner);
+  // set to the authenticated user's id in multi-user mode.
+  userId   String?
+  user     User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  imageUrl String?
+
+  // Calories/macros are ranges, not exact numbers — a photo can't tell you
+  // exact grams, hidden oil, or cooking method, so we don't pretend it can.
+  minCalories Float
+  maxCalories Float
+  minProtein  Float
+  maxProtein  Float
+  minCarbs    Float
+  maxCarbs    Float
+  minFat      Float
+  maxFat      Float
+
+  createdAt DateTime   @default(now())
+  items     FoodItem[]
+
+  @@index([userId, createdAt])
+}
+
+model FoodItem {
+  id     String @id @default(cuid())
+  mealId String
+  meal   Meal   @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  name   String
+
+  // grams: the current best-estimate/editable quantity used for the actual
+  // calculation. gramsMin/gramsMax: Gemini's original portion-size estimate,
+  // kept so the nutrition range still reflects quantity uncertainty even
+  // when grams itself is nudged slightly.
+  grams    Float
+  gramsMin Float
+  gramsMax Float
+
+  minCalories Float
+  maxCalories Float
+  minProtein  Float
+  maxProtein  Float
+  minCarbs    Float
+  maxCarbs    Float
+  minFat      Float
+  maxFat      Float
+
+  confidence Float?
+  createdAt  DateTime @default(now())
+
+  @@index([mealId])
+}
+
+// Small built-in nutrition reference table (per 100g), used instead of an
+// external nutrition API to keep the MVP dependency-free. See README for
+// how this can later be swapped for USDA FoodData Central / Open Food Facts.
+model FoodReference {
+  id              String @id @default(cuid())
+  name            String @unique
+  caloriesPer100g Float
+  proteinPer100g  Float
+  carbsPer100g    Float
+  fatPer100g      Float
+}

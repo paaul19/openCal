@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-opencal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opencal}
+      POSTGRES_DB: ${POSTGRES_DB:-opencal}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opencal} -d ${POSTGRES_DB:-opencal}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  opencal:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Always points at the "postgres" service on the compose network — this is
+      # intentionally NOT ${DATABASE_URL}, since that variable in your .env is
+      # meant for `npm run dev` on the host (which uses "localhost" instead).
+      DATABASE_URL: postgresql://${POSTGRES_USER:-opencal}:${POSTGRES_PASSWORD:-opencal}@postgres:5432/${POSTGRES_DB:-opencal}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      AUTH_SECRET: ${AUTH_SECRET}
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
